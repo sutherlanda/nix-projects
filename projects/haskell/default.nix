@@ -20,12 +20,19 @@ let
       fi
     '';
 
+  makeFlags = projectConfig: sep:
+    builtins.concatStringsSep sep
+      (builtins.concatLists [
+        [ "-no-user-package-db" "-i=${projectConfig.srcDir}" ]
+      ]);
+
   hieProgram = projectConfig:
     pkgs.writeShellScriptBin "${projectConfig.name}-hie-gen" ''
       test -z "$HIE_BIOS_OUTPUT" && echo "Invalid HIE_BIOS_OUTPUT environment variable" && exit 1
       test -f "$HIE_BIOS_OUTPUT" && rm "$HIE_BIOS_OUTPUT"
       touch "$HIE_BIOS_OUTPUT"
       cd ${projectConfig.srcDir}
+      echo -e "${makeFlags projectConfig "\\n"}" >> $HIE_BIOS_OUTPUT
       find . -iname '*.hs' -exec bash -c 'echo "$(dirname $1)/$(basename $1 .hs)" >> "$HIE_BIOS_OUTPUT"' bash {} \;
     '';
 
