@@ -2,17 +2,84 @@
 
 let
 
-  hie-program = pkgs.writeShellScriptBin "hie-program" ''
-    test -z "$HIE_BIOS_OUTPUT" && echo "Invalid HIE_BIOS_OUTPUT environment variable" && exit 1
-    test -f "$HIE_BIOS_OUTPUT" && rm "$HIE_BIOS_OUTPUT"
-    touch "$HIE_BIOS_OUTPUT"
-    cd src
-    find . -iname '*.hs' -exec bash -c 'echo "$(dirname $1)/$(basename $1 .hs)" >> "$HIE_BIOS_OUTPUT"' bash {} \;
-  '';
+  makeProject = projectConfig: {
+    name = projectConfig.name;
+    hieGen = hieGen projectConfig;
+    shellHook = "${projectConfig.name}-hie-gen";
+    buildCmds = makeBuildCmds projectConfig;
+    runCmds = makeRunCmds projectConfig;
+    watchCmds = makeWatchCmds projectConfig;
+    ghci = makeGhciCmd projectConfig;
+  };
 
-  hie-gen = pkgs.writeShellScriptBin "hie-gen" ''
-    echo -ne "cradle: {bios: {program: "${hie-program}/bin/hie-program"}}" > "src/hie.yaml"
-  '';
+  hieGen = projectConfig:
+    pkgs.writeShellScriptBin "${projectConfig.name}-hie-gen" ''
+      if [[ -d "${projectConfig.srcDir}" ]]
+      then
+        echo -ne "cradle: {bios: {program: "${hieProgram projectConfig}/bin/${projectConfig.name}-hie-gen"}}" > "${projectConfig.srcDir}/hie.yaml"
+      fi
+    '';
+
+  hieProgram = projectConfig:
+    pkgs.writeShellScriptBin "${projectConfig.name}-hie-gen" ''
+      test -z "$HIE_BIOS_OUTPUT" && echo "Invalid HIE_BIOS_OUTPUT environment variable" && exit 1
+      test -f "$HIE_BIOS_OUTPUT" && rm "$HIE_BIOS_OUTPUT"
+      touch "$HIE_BIOS_OUTPUT"
+      cd ${projectConfig.srcDir}
+      find . -iname '*.hs' -exec bash -c 'echo "$(dirname $1)/$(basename $1 .hs)" >> "$HIE_BIOS_OUTPUT"' bash {} \;
+    '';
+
+  makeBuildDir = projectRoot: executableName: "${projectRoot}/build/${executableName}";
+
+  makeBuildArtifactsDir = projectRoot: executableName: "${projectRoot}/artifacts/${executableName}";
+
+  makeBuildTarget = projectRoot: executableName: "${makeBuildDir projectRoot executableName}/out.ghc";
+
+  makeGhciCmd = projectConfig:
+    pkgs.writeShellScriptBin "${projectConfig.name}-ghci" ''
+      ghci -i=${projectConfig.srcDir} "$@"
+    '';
+
+  makeBuildCmds = projectConfig:
+    let
+      makeCmd = execName: execTarget:
+        pkgs.writeShellScriptBin "${projectConfig.name}-${execName}-build" ''
+          mkdir -p ${makeBuildDir projectConfig.projectRoot execName}
+          ghc \
+            -i=${projectConfig.srcDir} ${projectConfig.srcDir}/${execTarget} \
+            -odir ${makeBuildDir projectConfig.projectRoot execName} \
+            -hidir ${makeBuildArtifactsDir projectConfig.projectRoot execName} \
+            -o ${makeBuildTarget projectConfig.projectRoot execName}
+            "$@"
+        '';
+    in
+    builtins.mapAttrs makeCmd projectConfig.executables;
+
+  makeWatchCmds = projectConfig:
+    let
+      makeCmd = execName: execTarget:
+        pkgs.writeShellScriptBin "${projectConfig.name}-${execName}-watch" ''
+          ghcid \
+            --command="${projectConfig.name}-ghci" \
+            --test=main \
+            --reload="${projectConfig.srcDir}" \
+            "${projectConfig.srcDir}/${execTarget}" \
+            "$@"
+        '';
+    in
+    builtins.mapAttrs makeCmd projectConfig.executables;
+
+  makeRunCmds = projectConfig:
+    let
+      makeCmd = execName: execTarget:
+        pkgs.writeShellScriptBin "${projectConfig.name}-${execName}-run" ''
+          if [[ -f ${makeBuildTarget projectConfig.projectRoot execName} ]]
+          then
+            ${makeBuildTarget projectConfig.projectRoot execName} "$@"
+          fi
+        '';
+    in
+    builtins.mapAttrs makeCmd projectConfig.executables;
 
   # https://github.com/NixOS/nixpkgs/issues/140774#issuecomment-976899227
   rootGhcPkg =
@@ -31,20 +98,26 @@ let
         };
     };
 
-  shellHook = ''
-    hie-gen
-  '';
-
-  mkShell = pkgs.mkShell {
-    inherit shellHook;
-    buildInputs = [
-      (rootGhcPkg.ghcWithPackages haskellPackages)
-      rootGhcPkg.ghcid
-      rootGhcPkg.hls
-      rootGhcPkg.ormolu
-      hie-gen
-    ];
-  };
+  mkShell = projectConfigs:
+    let
+      projects = map makeProject projectConfigs;
+    in
+    pkgs.mkShell {
+      shellHook = builtins.concatStringsSep "\\n" (map (project: project.shellHook) projects);
+      buildInputs = builtins.concatLists [
+        (map (p: p.hieGen) projects)
+        (map (p: p.ghci) projects)
+        (builtins.concatLists (map builtins.attrValues (map (p: p.buildCmds) projects)))
+        (builtins.concatLists (map builtins.attrValues (map (p: p.runCmds) projects)))
+        (builtins.concatLists (map builtins.attrValues (map (p: p.watchCmds) projects)))
+        [
+          (rootGhcPkg.ghcWithPackages haskellPackages)
+          rootGhcPkg.ghcid
+          rootGhcPkg.hls
+          rootGhcPkg.ormolu
+        ]
+      ];
+    };
 
 in
 
