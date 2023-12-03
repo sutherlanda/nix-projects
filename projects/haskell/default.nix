@@ -1,7 +1,7 @@
-{ pkgs, haskellPackages ? p: [ ] }:
-
-let
-
+{
+  pkgs,
+  haskellPackages ? p: [],
+}: let
   makeProject = projectConfig: {
     name = projectConfig.name;
     hieGen = hieGen projectConfig;
@@ -22,9 +22,9 @@ let
 
   makeFlags = projectConfig: sep:
     builtins.concatStringsSep sep
-      (builtins.concatLists [
-        [ "-no-user-package-db" "-i=${projectConfig.srcDir}" ]
-      ]);
+    (builtins.concatLists [
+      ["-no-user-package-db" "-i=${projectConfig.srcDir}"]
+    ]);
 
   hieProgram = projectConfig:
     pkgs.writeShellScriptBin "${projectConfig.name}-hie-gen" ''
@@ -47,68 +47,62 @@ let
       ghci -i=${projectConfig.srcDir} "$@"
     '';
 
-  makeBuildCmds = projectConfig:
-    let
-      makeCmd = execName: execTarget:
-        pkgs.writeShellScriptBin "${projectConfig.name}-${execName}-build" ''
-          mkdir -p ${makeBuildDir projectConfig.projectRoot execName}
-          ghc \
-            -i=${projectConfig.srcDir} ${projectConfig.srcDir}/${execTarget} \
-            -odir ${makeBuildDir projectConfig.projectRoot execName} \
-            -hidir ${makeBuildArtifactsDir projectConfig.projectRoot execName} \
-            -o ${makeBuildTarget projectConfig.projectRoot execName}
-            "$@"
-        '';
-    in
+  makeBuildCmds = projectConfig: let
+    makeCmd = execName: execTarget:
+      pkgs.writeShellScriptBin "${projectConfig.name}-${execName}-build" ''
+        mkdir -p ${makeBuildDir projectConfig.projectRoot execName}
+        ghc \
+          -i=${projectConfig.srcDir} ${projectConfig.srcDir}/${execTarget} \
+          -odir ${makeBuildDir projectConfig.projectRoot execName} \
+          -hidir ${makeBuildArtifactsDir projectConfig.projectRoot execName} \
+          -o ${makeBuildTarget projectConfig.projectRoot execName}
+          "$@"
+      '';
+  in
     builtins.mapAttrs makeCmd projectConfig.executables;
 
-  makeWatchCmds = projectConfig:
-    let
-      makeCmd = execName: execTarget:
-        pkgs.writeShellScriptBin "${projectConfig.name}-${execName}-watch" ''
-          ghcid \
-            --command="${projectConfig.name}-ghci" \
-            --test=main \
-            --reload="${projectConfig.srcDir}" \
-            "${projectConfig.srcDir}/${execTarget}" \
-            "$@"
-        '';
-    in
+  makeWatchCmds = projectConfig: let
+    makeCmd = execName: execTarget:
+      pkgs.writeShellScriptBin "${projectConfig.name}-${execName}-watch" ''
+        ghcid \
+          --command="${projectConfig.name}-ghci" \
+          --test=main \
+          --reload="${projectConfig.srcDir}" \
+          "${projectConfig.srcDir}/${execTarget}" \
+          "$@"
+      '';
+  in
     builtins.mapAttrs makeCmd projectConfig.executables;
 
-  makeRunCmds = projectConfig:
-    let
-      makeCmd = execName: execTarget:
-        pkgs.writeShellScriptBin "${projectConfig.name}-${execName}-run" ''
-          if [[ -f ${makeBuildTarget projectConfig.projectRoot execName} ]]
-          then
-            ${makeBuildTarget projectConfig.projectRoot execName} "$@"
-          fi
-        '';
-    in
+  makeRunCmds = projectConfig: let
+    makeCmd = execName: execTarget:
+      pkgs.writeShellScriptBin "${projectConfig.name}-${execName}-run" ''
+        if [[ -f ${makeBuildTarget projectConfig.projectRoot execName} ]]
+        then
+          ${makeBuildTarget projectConfig.projectRoot execName} "$@"
+        fi
+      '';
+  in
     builtins.mapAttrs makeCmd projectConfig.executables;
 
   # https://github.com/NixOS/nixpkgs/issues/140774#issuecomment-976899227
-  rootGhcPkg =
-    pkgs.haskell.packages.ghc8107.override {
-      overrides = self: super:
-        let
-          workAround140774 = hpkg: with pkgs.haskell.lib;
-            overrideCabal hpkg (drv: {
-              enableSeparateBinOutput = false;
-            });
-        in
-        {
-          ghcid = workAround140774 super.ghcid;
-          ormolu = workAround140774 super.ormolu;
-          hls = workAround140774 super.haskell-language-server;
-        };
+  rootGhcPkg = pkgs.haskell.packages.ghc90.override {
+    overrides = self: super: let
+      workAround140774 = hpkg:
+        with pkgs.haskell.lib;
+          overrideCabal hpkg (drv: {
+            enableSeparateBinOutput = false;
+          });
+    in {
+      ghcid = workAround140774 super.ghcid;
+      ormolu = workAround140774 super.ormolu;
+      hls = workAround140774 super.haskell-language-server;
     };
+  };
 
-  mkShell = projectConfigs:
-    let
-      projects = map makeProject projectConfigs;
-    in
+  mkShell = projectConfigs: let
+    projects = map makeProject projectConfigs;
+  in
     pkgs.mkShell {
       shellHook = builtins.concatStringsSep "\\n" (map (project: project.shellHook) projects);
       buildInputs = builtins.concatLists [
@@ -125,10 +119,6 @@ let
         ]
       ];
     };
-
-in
-
-{
+in {
   inherit mkShell;
 }
-
