@@ -1,7 +1,7 @@
 {
   description = "Project template and utilities in Nix.";
   inputs = {
-    nixpkgs = {url = github:nixos/nixpkgs/nixpkgs-unstable;};
+    nixpkgs = {url = github:nixos/nixpkgs;};
     flake-utils = {url = github:numtide/flake-utils;};
   };
 
@@ -17,6 +17,7 @@
       pkgs = import nixpkgs {
         inherit system;
         config.allowUnfree = true;
+        config.allowBroken = true;
       };
 
       haskellProjectConfigs = [
