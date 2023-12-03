@@ -86,17 +86,23 @@
     builtins.mapAttrs makeCmd projectConfig.executables;
 
   # https://github.com/NixOS/nixpkgs/issues/140774#issuecomment-976899227
-  #rootGhcPkg = pkgs.ghc.override {
-  #overrides = self: super: let
-  #workAround140774 = hpkg:
-  #with pkgs.haskell.lib;
-  #overrideCabal hpkg (drv: {
-  #enableSeparateBinOutput = false;
-  #});
-  #in {
-  #ghcid = workAround140774 super.ghcid;
-  #ormolu = workAround140774 super.ormolu;
-  #hls = workAround140774 super.haskell-language-server;
+  rootGhcPkg = pkgs.haskell.packages.ghc90.override {
+    overrides = self: super: let
+      workAround140774 = hpkg:
+        with pkgs.haskell.lib;
+          overrideCabal hpkg (drv: {
+            enableSeparateBinOutput = false;
+          });
+    in {
+      #ghcid = workAround140774 super.ghcid;
+      #ormolu = workAround140774 super.ormolu;
+      hls = workAround140774 super.haskell-language-server;
+    };
+  };
+
+  #myGhc = pkgs.ghc.override {
+  #overrides = self: super: {
+  #hls = pkgs.haskell.lib.hpkg super.haskell-language-server;
   #};
   #};
 
@@ -114,7 +120,7 @@
         [
           (pkgs.haskellPackages.ghcWithPackages haskellPackages)
           pkgs.haskellPackages.ghcid
-          #pkgs.haskellPackages.hls
+          rootGhcPkg.hls
           pkgs.haskellPackages.ormolu
         ]
       ];
