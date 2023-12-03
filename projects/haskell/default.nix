@@ -100,12 +100,6 @@
     };
   };
 
-  #myGhc = pkgs.ghc.override {
-  #overrides = self: super: {
-  #hls = pkgs.haskell.lib.hpkg super.haskell-language-server;
-  #};
-  #};
-
   mkShell = projectConfigs: let
     projects = map makeProject projectConfigs;
   in
